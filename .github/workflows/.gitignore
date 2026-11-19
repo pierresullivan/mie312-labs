@@ -1,0 +1,23 @@
+# LaTeX build products
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+# Compiled PDFs are built by GitHub Actions and attached to Releases
+*.pdf
+build/
+# OS / editor clutter
+.DS_Store
+Thumbs.db
+*~
