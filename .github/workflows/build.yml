@@ -1,0 +1,84 @@
+name: Build lab manuals and check notebooks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]   # publishing a Release in the web interface attaches the PDFs to it
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed only to attach PDFs to a Release
+
+jobs:
+  notebooks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python packages
+        run: pip install numpy pandas matplotlib nbconvert nbclient ipykernel
+
+      - name: Check notebooks were committed without outputs
+        run: |
+          python - <<'PY'
+          import glob, json, sys
+          bad = [f for f in sorted(glob.glob("lab*/*.ipynb"))
+                 if any(c.get("outputs") for c in json.load(open(f))["cells"])]
+          if bad:
+              print("These notebooks contain saved outputs; clear them before committing:")
+              print("\n".join("  " + f for f in bad))
+              sys.exit(1)
+          print("All notebooks are output-free.")
+          PY
+
+      - name: Run every notebook top to bottom
+        env:
+          MPLBACKEND: Agg
+        run: |
+          for nb in lab*/*.ipynb; do
+            echo "Running $nb"
+            jupyter nbconvert --to notebook --execute "$nb" --stdout > /dev/null
+          done
+
+  build:
+    needs: notebooks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TeX Live
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            latexmk lmodern texlive-latex-base texlive-latex-recommended \
+            texlive-latex-extra texlive-pictures texlive-fonts-recommended
+
+      - name: Compile manuals
+        run: |
+          mkdir -p build
+          for lab in lab1-flume lab2-pipe-losses lab3-aero lab4-turbines; do
+            (cd "$lab" && latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex)
+          done
+          cp lab1-flume/main.pdf       build/MIE312_Lab1_Flume.pdf
+          cp lab2-pipe-losses/main.pdf build/MIE312_Lab2_Pipe_Losses.pdf
+          cp lab3-aero/main.pdf        build/MIE312_Lab3_Aerodynamics.pdf
+          cp lab4-turbines/main.pdf    build/MIE312_Lab4_Turbines.pdf
+
+      - name: Upload PDFs (every build)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mie312-lab-manuals
+          path: build/*.pdf
+
+      - name: Attach PDFs to the Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" build/*.pdf --clobber
